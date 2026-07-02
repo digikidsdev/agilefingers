@@ -128,6 +128,27 @@
   .pauseOverlay .sub{font-size:16px;font-weight:normal;}
   .pauseOverlay.hidden{display:none;}
   .hint{text-align:center;font-size:13px;color:#3a5064;opacity:.85;}
+
+  .keyboard{display:flex;flex-direction:column;gap:5px;align-items:center;margin-top:2px;user-select:none;-webkit-user-select:none;}
+  .keyboard.hidden{display:none;}
+  .krow{display:flex;gap:5px;justify-content:center;}
+  .krow.r2{margin-left:16px;}
+  .krow.r3{margin-left:38px;}
+  .key{
+    width:min(8.4vw,46px);height:min(9vw,48px);
+    display:flex;align-items:center;justify-content:center;
+    background:#f2f6fa;border:2px solid #cdd8e3;border-radius:10px;
+    font-weight:bold;font-size:clamp(12px,3.4vw,19px);color:#33475c;
+    box-shadow:0 3px 0 #cdd8e3;cursor:pointer;transition:transform .05s,box-shadow .05s;
+  }
+  .key:active{transform:translateY(2px);box-shadow:0 1px 0 #cdd8e3;}
+  .key.hint{background:#eaf6ff;border-color:#7bbdf0;color:#1f6fb0;}
+  .key.target{background:#d5f7dd;border-color:#1f9d55;color:#12703a;box-shadow:0 0 0 3px rgba(31,157,85,.35),0 3px 0 #1f9d55;animation:keypulse 1s ease-in-out infinite;}
+  @keyframes keypulse{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
+  .key.hit{animation:keyhit .3s ease;}
+  @keyframes keyhit{0%{background:#8fe6a3;transform:scale(1.12);}100%{background:#f2f6fa;transform:scale(1);}}
+  .key.miss{animation:keymiss .4s ease;}
+  @keyframes keymiss{0%,100%{background:#f2f6fa;}30%{background:#ffb3b7;border-color:#d62828;transform:scale(1.1);}}
   #typer{position:fixed;bottom:0;left:50%;width:1px;height:1px;opacity:0;border:0;padding:0;}
 </style>
 </head>
@@ -145,6 +166,7 @@
       <button id="musicBtn" title="Music">🎵</button>
       <button id="voiceBtn" title="Voice">🗣️</button>
       <button id="muteBtn" title="Sound">🔊</button>
+      <button id="kbdBtn" title="Show/hide keyboard">⌨️</button>
       <button id="pauseBtn" title="Pause">⏸️</button>
     </div>
 
@@ -199,6 +221,7 @@
       </div>
     </div>
 
+    <div class="keyboard" id="keyboard"></div>
     <input id="typer" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" inputmode="text" aria-hidden="true">
     <div class="hint" data-i18n="hint">Type the word on each Digi to rescue it before the Robo-Wolf reaches it. Pick an age (3–12) to set the words and pace.</div>
   </div>
@@ -387,6 +410,8 @@
   var ageDescEl = document.getElementById("ageDesc");
   var voiceBtn = document.getElementById("voiceBtn");
   var musicBtn = document.getElementById("musicBtn");
+  var keyboard = document.getElementById("keyboard");
+  var kbdBtn = document.getElementById("kbdBtn");
   var wrongHintEl = document.getElementById("wrongHint");
   var wrongArw = document.getElementById("wrongArw");
   var wrongLbl = document.getElementById("wrongLbl");
@@ -463,6 +488,41 @@
   function liveSheep(){ return state.sheep.filter(function(s){ return !s.rescued && !s.eaten; }); }
   function mostEndangered(list){ var m=null; list.forEach(function(s){ if(!m||s.x>m.x) m=s; }); return m; }
 
+  // ---------- on-screen keyboard ----------
+  var KB_ROWS = ["qwertyuiop","asdfghjkl","zxcvbnm"];
+  var keyEls = {};
+  function buildKeyboard(){
+    KB_ROWS.forEach(function(row,ri){
+      var r=document.createElement("div"); r.className="krow r"+(ri+1);
+      for(var i=0;i<row.length;i++){
+        (function(ch){
+          var k=document.createElement("div"); k.className="key"; k.textContent=ch.toUpperCase(); k.setAttribute("data-key",ch);
+          function press(e){ e.preventDefault(); if(state.playing){ handleChar(ch); typer.focus(); } }
+          k.addEventListener("mousedown",press);
+          k.addEventListener("touchstart",press,{passive:false});
+          r.appendChild(k); keyEls[ch]=k;
+        })(row[i]);
+      }
+      keyboard.appendChild(r);
+    });
+  }
+  function clearKeyStates(){ for(var c in keyEls){ keyEls[c].classList.remove("target","hint"); } }
+  function updateKeyboardHint(){
+    clearKeyStates();
+    if(!state.playing) return;
+    var live = liveSheep();
+    live.forEach(function(s){ var ch=s.word[s.typed]||s.word[0]; if(keyEls[ch]) keyEls[ch].classList.add("hint"); });
+    var primary=null;
+    if(state.activeId!=null){ var a=getSheep(state.activeId); if(a) primary=a.word[a.typed]; }
+    if(!primary){ var m=mostEndangered(live); if(m) primary=m.word[m.typed]||m.word[0]; }
+    if(primary && keyEls[primary]){ keyEls[primary].classList.remove("hint"); keyEls[primary].classList.add("target"); }
+  }
+  function flashKey(ch,cls){
+    var k=keyEls[ch]; if(!k) return;
+    k.classList.remove(cls); void k.offsetWidth; k.classList.add(cls);
+    setTimeout(function(){ k.classList.remove(cls); }, cls==="hit"?300:400);
+  }
+
   function spawnSheep(){
     var live = liveSheep();
     if(live.length >= state.profile.maxSheep) return;
@@ -477,7 +537,7 @@
     var body=document.createElement("div"); body.className="body"; body.innerHTML=makeDigi();
     node.appendChild(bubble); node.appendChild(body); field.appendChild(node);
     var s={id:state.nextId++, x:START_X, y:y, word:word, typed:0, rescued:false, eaten:false, el:node, wordEl:bubble};
-    updateWord(s); state.sheep.push(s);
+    updateWord(s); state.sheep.push(s); updateKeyboardHint();
   }
 
   function floatText(s,txt){ var f=document.createElement("div"); f.className="float"; f.textContent=txt; f.style.left=s.el.style.left; f.style.top=(s.y-8)+"px"; field.appendChild(f); setTimeout(function(){ f.remove(); },900); }
@@ -505,13 +565,13 @@
     state.score+=pts; floatText(s,"+"+pts); sRescue();
     var newLevel=Math.min(1+Math.floor(state.rescued/state.profile.rescuesPerLevel), state.profile.maxLevel);
     if(newLevel>state.level){ state.level=newLevel; showToast(T().lvlWord+" "+newLevel+"!"); sLevel(); }
-    setTimeout(function(){ removeSheep(s); },600); updateHUD();
+    setTimeout(function(){ removeSheep(s); },600); updateHUD(); updateKeyboardHint();
   }
   function eatSheep(s){
     if(s.rescued||s.eaten) return;
     s.eaten=true; if(state.activeId===s.id) state.activeId=null;
     s.el.classList.add("eaten"); state.lives--; state.combo=0; sEaten(); flash();
-    setTimeout(function(){ removeSheep(s); },500); updateHUD();
+    setTimeout(function(){ removeSheep(s); },500); updateHUD(); updateKeyboardHint();
     if(state.lives<=0) gameOver();
   }
   function removeSheep(s){ var i=state.sheep.indexOf(s); if(i>=0) state.sheep.splice(i,1); if(s.el&&s.el.parentNode) s.el.remove(); }
@@ -527,31 +587,33 @@
       if(!a || a.rescued || a.eaten){ state.activeId=null; }
       else {
         if(c === a.word[a.typed]){
-          a.typed++; state.correctChars++; speak(c.toUpperCase()); updateWord(a);
+          a.typed++; state.correctChars++; speak(c.toUpperCase()); flashKey(c,"hit"); updateWord(a);
           if(a.typed >= a.word.length){ rescue(a); state.activeId=null; }
         } else {
-          state.errors++; wrongHint(c, a.word[a.typed]);
+          state.errors++; flashKey(c,"miss"); wrongHint(c, a.word[a.typed]);
         }
-        return;
+        updateKeyboardHint(); return;
       }
     }
     var cands = state.sheep.filter(function(s){ return !s.rescued && !s.eaten && s.typed===0 && s.word[0]===c; });
     if(cands.length){
       cands.sort(function(p,q){ return q.x - p.x; });
       var s=cands[0]; s.typed=1; state.correctChars++; state.activeId=s.id;
-      s.el.classList.add("active"); speak(c.toUpperCase()); updateWord(s);
+      s.el.classList.add("active"); speak(c.toUpperCase()); flashKey(c,"hit"); updateWord(s);
       if(s.word.length===1){ rescue(s); state.activeId=null; }
     } else {
       var live = liveSheep();
-      if(live.length){ state.errors++; var tgt=mostEndangered(live); wrongHint(c, tgt.word[0]); }
+      if(live.length){ state.errors++; flashKey(c,"miss"); var tgt=mostEndangered(live); wrongHint(c, tgt.word[0]); }
       else { speak(c.toUpperCase()); }
     }
+    updateKeyboardHint();
   }
 
   typer.addEventListener("input", function(){ var v=typer.value; for(var i=0;i<v.length;i++){ handleChar(v[i]); } typer.value=""; });
   typer.addEventListener("keydown", function(e){
     if(e.key==="Backspace"){ e.preventDefault();
       if(state.activeId!=null){ var s=getSheep(state.activeId); if(s && s.typed>0){ s.typed--; updateWord(s); if(s.typed===0){ s.el.classList.remove("active"); state.activeId=null; } } }
+      updateKeyboardHint();
     } else if(e.key==="Escape"){ e.preventDefault(); togglePause(); }
   });
   field.addEventListener("mousedown", function(){ if(state.playing) typer.focus(); });
@@ -576,7 +638,7 @@
     if(state.spawnTimer<=0){ spawnSheep(); state.spawnTimer=state.profile.spawn(state.level); }
     var spd=state.profile.speed(state.level);
     for(var i=0;i<state.sheep.length;i++){ var s=state.sheep[i]; if(s.rescued||s.eaten) continue; s.x+=spd*dt; s.el.style.left=(s.x*100)+"%"; if(s.x>=DANGER_X){ eatSheep(s); } }
-    state.hudTimer -= dt*1000; if(state.hudTimer<=0){ updateHUD(); state.hudTimer=250; }
+    state.hudTimer -= dt*1000; if(state.hudTimer<=0){ updateHUD(); updateKeyboardHint(); state.hudTimer=250; }
     requestAnimationFrame(loop);
   }
 
@@ -591,12 +653,12 @@
     field.classList.toggle("upper", state.profile.upper);
     startScreen.classList.add("hidden"); overScreen.classList.add("hidden"); pauseScreen.classList.add("hidden");
     state.playing=true; state.startTime=performance.now(); state.lastFrame=performance.now(); state.spawnTimer=500;
-    updateHUD(); typer.value=""; typer.focus();
+    updateHUD(); updateKeyboardHint(); typer.value=""; typer.focus();
     startMusic();
     requestAnimationFrame(loop);
   }
   function gameOver(){
-    state.playing=false; stopMusic();
+    state.playing=false; stopMusic(); clearKeyStates();
     document.getElementById("fRescued").textContent=state.rescued;
     document.getElementById("fScore").textContent=state.score;
     document.getElementById("fWpm").textContent=state.bestWpm;
@@ -633,10 +695,12 @@
   document.getElementById("pauseBtn").addEventListener("click", togglePause);
   document.getElementById("muteBtn").addEventListener("click", function(){ muted=!muted; this.textContent = muted?"🔇":"🔊"; });
   musicBtn.addEventListener("click", function(){ musicOn=!musicOn; this.textContent = musicOn?"🎵":"🔕"; if(musicOn){ initAudio(); startMusic(); } else { stopMusic(); } });
+  kbdBtn.addEventListener("click", function(){ keyboard.classList.toggle("hidden"); });
   voiceBtn.addEventListener("click", function(){ setVoice(!voiceOn); if(voiceOn) speak(T().ready); });
 
   window.addEventListener("keydown", function(e){ if(document.activeElement!==typer && state.playing && /^[a-zA-Z]$/.test(e.key)){ typer.focus(); } });
 
+  buildKeyboard();
   resetState();
   applyLang("en");
 })();
